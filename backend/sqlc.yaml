@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations" # sqlc reads the goose files and ignores their Down sections
+    queries: "queries" # your hand-written SQL, one file per table
+    gen:
+      go:
+        package: "db"
+        out: "db" # generated Go code; never edit by hand, rerun `sqlc generate`
+        sql_package: "pgx/v5" # use pgx directly, the same driver as main.go
