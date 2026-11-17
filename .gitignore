@@ -1,0 +1,4 @@
+.vscode
+
+# Local environment (connection strings, later secrets). Copy backend/.env.example to backend/.env.
+.env
