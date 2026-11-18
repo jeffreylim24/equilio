@@ -8,3 +8,4 @@ sql:
         package: "db"
         out: "db" # generated Go code; never edit by hand, rerun `sqlc generate`
         sql_package: "pgx/v5" # use pgx directly, the same driver as main.go
+        emit_json_tags: true # struct tags like `json:"balance"` so rows encode with lowercase keys

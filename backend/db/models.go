@@ -5,7 +5,7 @@
 package db
 
 type Account struct {
-	ID      int64
-	Name    string
-	Balance int64
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Balance int64  `json:"balance"`
 }
