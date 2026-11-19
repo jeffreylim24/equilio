@@ -9,12 +9,14 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jeffreylim24/equilio/backend/db"
 )
 
 // Server holds the dependencies shared by the HTTP handlers.
 type Server struct {
 	queries *db.Queries
+	pool    *pgxpool.Pool
 }
 
 // sendJSON writes v as a JSON response with the given status code.
@@ -79,4 +81,94 @@ func (s *Server) handleGetAccountByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendJSON(w, http.StatusOK, account)
+}
+
+func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FromAccountID int64 `json:"from_account_id"`
+		ToAccountID   int64 `json:"to_account_id"`
+		Amount        int64 `json:"amount"`
+	}
+
+	// Validate input fields
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if req.FromAccountID <= 0 || req.ToAccountID <= 0 {
+		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ID"})
+		return
+	}
+	if req.Amount <= 0 {
+		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid amount"})
+		return
+	}
+
+	// BEGIN
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		log.Printf("begin: %v", err)
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := s.queries.WithTx(tx)
+
+	// Verify accounts exist and have sufficient balance
+	fromAccount, err1 := qtx.GetAccountByID(r.Context(), req.FromAccountID)
+	toAccount, err2 := qtx.GetAccountByID(r.Context(), req.ToAccountID)
+	if err := errors.Join(err1, err2); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			sendJSON(w, http.StatusNotFound, map[string]string{"error": "account not found"})
+			return
+		}
+		log.Printf("get account by ID: %v", err)
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	if fromAccount == toAccount {
+		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot transfer to the same account"})
+		return
+	}
+	if req.Amount > fromAccount.Balance {
+		sendJSON(w, http.StatusConflict, map[string]string{"error": "insufficient balance"})
+		return
+	}
+
+	_, err = qtx.DeductAccountBalance(r.Context(), db.DeductAccountBalanceParams{
+		Amount: req.Amount,
+		ID:     req.FromAccountID,
+	})
+	if err != nil {
+		log.Printf("deduct balance: %v", err)
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	_, err = qtx.AddAccountBalance(r.Context(), db.AddAccountBalanceParams{
+		Amount: req.Amount,
+		ID:     req.ToAccountID,
+	})
+	if err != nil {
+		log.Printf("add balance: %v", err)
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	transfer, err := qtx.CreateNewTransfer(r.Context(), db.CreateNewTransferParams{
+		FromAccountID: req.FromAccountID,
+		ToAccountID:   req.ToAccountID,
+		Amount:        req.Amount,
+	})
+	if err != nil {
+		log.Printf("create new transfer: %v", err)
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+
+	// COMMIT
+	if err := tx.Commit(r.Context()); err != nil {
+		log.Printf("commit: %v", err)
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	sendJSON(w, http.StatusCreated, transfer)
 }
