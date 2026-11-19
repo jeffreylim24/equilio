@@ -32,7 +32,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// A pool of connections; every request will borrow one and give it back.
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("parse DATABASE_URL: %v", err)

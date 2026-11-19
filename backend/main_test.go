@@ -1,11 +1,5 @@
 package main
 
-// Test harness: TestMain runs once before every test in this package. It connects to the
-// test database (never the dev one, since tests delete data), runs the goose migrations
-// into it, and shares the pool via testPool.
-//
-// Run from backend/: set -a; source .env; set +a; go test ./...
-
 import (
 	"context"
 	"errors"
@@ -21,9 +15,10 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// testPool is the connection pool every test shares. Set by TestMain before any test runs.
+// testPool is shared by every test in the package; TestMain sets it.
 var testPool *pgxpool.Pool
 
+// TestMain prepares the test database once, then runs every test in the package.
 func TestMain(m *testing.M) {
 	// Bounds setup only (connect + migrate), not the tests themselves.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -41,8 +36,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// setupTestDB connects to TEST_DATABASE_URL, refuses any database not named *_test,
-// and brings its schema up to date with migrations/.
+// setupTestDB connects to TEST_DATABASE_URL and brings its schema up to date. It refuses
+// any database not named *_test, because tests delete data.
 func setupTestDB(ctx context.Context) (*pgxpool.Pool, error) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -53,7 +48,6 @@ func setupTestDB(ctx context.Context) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse TEST_DATABASE_URL: %w", err)
 	}
-	// Guard against pointing tests at the dev DB: tests delete data.
 	if name := cfg.ConnConfig.Database; !strings.HasSuffix(name, "_test") {
 		return nil, fmt.Errorf("refusing to run: database %q does not end in _test", name)
 	}
@@ -80,7 +74,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	sqlDB := stdlib.OpenDBFromPool(pool)
 	defer sqlDB.Close()
 
-	// go test runs in the package directory (backend/), so this relative path works.
+	// Relative to backend/: go test runs in the package directory.
 	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, os.DirFS("migrations"))
 	if err != nil {
 		return fmt.Errorf("create goose provider: %w", err)
@@ -96,14 +90,11 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// resetDB empties every app table so the calling test starts from a known state.
-// Call it first in every test. It runs at the start, not the end, so a failed test's
-// rows stay in equilio_test for debugging in psql until the next test runs.
+// resetDB empties the app tables. Call it first in every test: resetting at the start
+// rather than the end leaves a failed test's rows in place for debugging.
 //
-// goose_db_version is deliberately not listed: wiping it would make goose re-run
-// migrations into tables that already exist. No CASCADE: when a new table references
-// accounts or transfers and isn't added here, TRUNCATE fails loudly instead of
-// silently emptying it.
+// goose_db_version is not listed, or goose would re-run migrations. No CASCADE, so a new
+// table referencing these that is missing from the list makes TRUNCATE fail loudly.
 func resetDB(t *testing.T) {
 	t.Helper()
 	_, err := testPool.Exec(t.Context(), "TRUNCATE transfers, accounts RESTART IDENTITY")

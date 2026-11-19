@@ -108,7 +108,6 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		Amount        int64 `json:"amount"`
 	}
 
-	// Validate input fields
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		sendError(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -126,7 +125,6 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// BEGIN
 	tx, err := s.pool.Begin(r.Context())
 	if err != nil {
 		sendInternalError(w, "begin", err)
@@ -135,7 +133,6 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := s.queries.WithTx(tx)
 
-	// Verify accounts exist and have sufficient balance
 	fromAccount, err := qtx.GetAccountByID(r.Context(), req.FromAccountID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		sendError(w, http.StatusNotFound, fmt.Sprintf("from account %d not found", req.FromAccountID))
@@ -185,7 +182,6 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// COMMIT
 	if err := tx.Commit(r.Context()); err != nil {
 		sendInternalError(w, "commit", err)
 		return

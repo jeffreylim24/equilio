@@ -12,8 +12,6 @@ import (
 	"github.com/jeffreylim24/equilio/backend/db"
 )
 
-// TestCreateAccount_BlankName checks that POST /accounts rejects a name with no
-// non-whitespace character: 400, a JSON error body, and no row written.
 func TestCreateAccount_BlankName(t *testing.T) {
 	srv := &Server{queries: db.New(testPool), pool: testPool}
 
@@ -57,8 +55,6 @@ func TestCreateAccount_BlankName(t *testing.T) {
 	}
 }
 
-// TestCreateAccount_StartsAtZero checks that POST /accounts returns 201 with the
-// new account, and that it starts at balance 0 in the DB, not just in the response.
 func TestCreateAccount_StartsAtZero(t *testing.T) {
 	srv := &Server{queries: db.New(testPool), pool: testPool}
 	resetDB(t)
@@ -72,7 +68,6 @@ func TestCreateAccount_StartsAtZero(t *testing.T) {
 	srv.handleCreateAccount(rec, req)
 
 	if rec.Code != http.StatusCreated {
-		// Without a 201 there is no account to check, so stop here.
 		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusCreated, rec.Body.String())
 	}
 
@@ -90,7 +85,7 @@ func TestCreateAccount_StartsAtZero(t *testing.T) {
 		t.Errorf("balance = %d, want 0", got.Balance)
 	}
 
-	// The response could be built by hand and say anything; the stored row is the truth.
+	// The response alone doesn't prove what was stored.
 	stored, err := srv.queries.GetAccountByID(t.Context(), got.ID)
 	if err != nil {
 		t.Fatalf("read account %d back: %v", got.ID, err)
@@ -100,9 +95,8 @@ func TestCreateAccount_StartsAtZero(t *testing.T) {
 	}
 }
 
-// TestGetAccountByID_NotFound checks that GET /accounts/{id} returns 404 naming the ID
-// when no account has it. A decoy account exists, so a handler that ignores the ID and
-// returns any row would get 200 and fail this test.
+// TestGetAccountByID_NotFound creates a decoy account so that a handler ignoring the
+// ID would return 200 instead of 404.
 func TestGetAccountByID_NotFound(t *testing.T) {
 	srv := &Server{queries: db.New(testPool), pool: testPool}
 	resetDB(t)
@@ -111,7 +105,7 @@ func TestGetAccountByID_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create decoy account: %v", err)
 	}
-	missing := existing.ID + 1 // the only row is existing, so this ID is unused
+	missing := existing.ID + 1
 
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/accounts/%d", missing), nil)
 	rec := httptest.NewRecorder()
@@ -133,9 +127,8 @@ func TestGetAccountByID_NotFound(t *testing.T) {
 	}
 }
 
-// TestCreateTransfer_RollsBackWhenInsertFails checks that a transfer is all or nothing:
-// the deduct and add both succeed, then the transfer insert is forced to fail, and
-// neither balance change may stick. No curl run can reach this path.
+// TestCreateTransfer_RollsBackWhenInsertFails forces the transfer insert to fail after
+// both balance updates have run, and checks that neither update sticks.
 func TestCreateTransfer_RollsBackWhenInsertFails(t *testing.T) {
 	srv := &Server{queries: db.New(testPool), pool: testPool}
 	resetDB(t)
@@ -149,7 +142,7 @@ func TestCreateTransfer_RollsBackWhenInsertFails(t *testing.T) {
 		t.Fatalf("create to account: %v", err)
 	}
 
-	// Seed money with SQL: the API has no way to create money, on purpose.
+	// The API can't add money, so seed it directly.
 	for id, balance := range map[int64]int64{from.ID: 100, to.ID: 50} {
 		_, err := testPool.Exec(t.Context(), "UPDATE accounts SET balance = $1 WHERE id = $2", balance, id)
 		if err != nil {
@@ -157,7 +150,7 @@ func TestCreateTransfer_RollsBackWhenInsertFails(t *testing.T) {
 		}
 	}
 
-	// Fault injection: every insert into transfers now fails, after deduct and add ran.
+	// Makes every insert into transfers fail.
 	_, err = testPool.Exec(t.Context(),
 		"ALTER TABLE transfers ADD CONSTRAINT test_block_transfers CHECK (false) NOT VALID")
 	if err != nil {
@@ -184,8 +177,7 @@ func TestCreateTransfer_RollsBackWhenInsertFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, req)
 
-	// Only 500 proves the handler got past every check and into the writes.
-	// 400/404/409 would mean the setup is wrong and nothing below is meaningful.
+	// Any other status means the request never reached the writes.
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusInternalServerError, rec.Body.String())
 	}
