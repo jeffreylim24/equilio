@@ -98,3 +98,36 @@ func TestCreateAccount_StartsAtZero(t *testing.T) {
 		t.Errorf("stored = %+v, want it to match response %+v", stored, got)
 	}
 }
+
+// TestGetAccountByID_NotFound checks that GET /accounts/{id} returns 404 naming the ID
+// when no account has it. A decoy account exists, so a handler that ignores the ID and
+// returns any row would get 200 and fail this test.
+func TestGetAccountByID_NotFound(t *testing.T) {
+	srv := &Server{queries: db.New(testPool), pool: testPool}
+	resetDB(t)
+
+	existing, err := srv.queries.CreateAccount(t.Context(), "Decoy")
+	if err != nil {
+		t.Fatalf("create decoy account: %v", err)
+	}
+	missing := existing.ID + 1 // the only row is existing, so this ID is unused
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/accounts/%d", missing), nil)
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d (body: %s)", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+
+	var got struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v (body: %s)", err, rec.Body.String())
+	}
+	want := fmt.Sprintf("account %d not found", missing)
+	if got.Error != want {
+		t.Errorf("error = %q, want %q", got.Error, want)
+	}
+}
