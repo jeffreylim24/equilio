@@ -55,3 +55,46 @@ func TestCreateAccount_BlankName(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateAccount_StartsAtZero checks that POST /accounts returns 201 with the
+// new account, and that it starts at balance 0 in the DB, not just in the response (D4).
+func TestCreateAccount_StartsAtZero(t *testing.T) {
+	srv := &Server{queries: db.New(testPool), pool: testPool}
+	resetDB(t)
+
+	payload, err := json.Marshal(map[string]string{"name": "Alice"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/accounts", bytes.NewReader(payload))
+	rec := httptest.NewRecorder()
+	srv.handleCreateAccount(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		// Without a 201 there is no account to check, so stop here.
+		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	var got db.Account
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v (body: %s)", err, rec.Body.String())
+	}
+	if got.ID <= 0 {
+		t.Errorf("id = %d, want > 0", got.ID)
+	}
+	if got.Name != "Alice" {
+		t.Errorf("name = %q, want %q", got.Name, "Alice")
+	}
+	if got.Balance != 0 {
+		t.Errorf("balance = %d, want 0", got.Balance)
+	}
+
+	// The response could be built by hand and say anything; the stored row is the truth.
+	stored, err := srv.queries.GetAccountByID(t.Context(), got.ID)
+	if err != nil {
+		t.Fatalf("read account %d back: %v", got.ID, err)
+	}
+	if stored != got {
+		t.Errorf("stored = %+v, want it to match response %+v", stored, got)
+	}
+}
