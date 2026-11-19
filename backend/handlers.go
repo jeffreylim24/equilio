@@ -29,6 +29,18 @@ func sendJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+// sendError writes {"error": msg} with the given status code.
+func sendError(w http.ResponseWriter, status int, msg string) {
+	sendJSON(w, status, map[string]string{"error": msg})
+}
+
+// sendInternalError logs err with a label saying where it happened and sends a
+// generic 500. The real error never goes to the client: it can expose SQL details.
+func sendInternalError(w http.ResponseWriter, label string, err error) {
+	log.Printf("%s: %v", label, err)
+	sendError(w, http.StatusInternalServerError, "internal error")
+}
+
 // handleCreateAccount handles POST /accounts. The body is {"name": "..."};
 // it returns 201 with the new account. Balance always starts at 0: the API
 // never creates money.
@@ -38,21 +50,19 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		sendError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
 	// The DB's name_not_blank CHECK is the real guarantee; this gives a clear 400.
 	if strings.TrimSpace(req.Name) == "" {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "name must be non-empty"})
+		sendError(w, http.StatusBadRequest, "name must be non-empty")
 		return
 	}
 
 	account, err := s.queries.CreateAccount(r.Context(), req.Name)
 	if err != nil {
-		// Log the real error; never send it to the client (it can expose SQL details).
-		log.Printf("create account: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "create account", err)
 		return
 	}
 
@@ -65,18 +75,17 @@ func (s *Server) handleGetAccountByID(w http.ResponseWriter, r *http.Request) {
 	raw := r.PathValue("id")
 	n, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || n <= 0 {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ID"})
+		sendError(w, http.StatusBadRequest, "invalid ID")
 		return
 	}
 
 	account, err := s.queries.GetAccountByID(r.Context(), n)
 	if errors.Is(err, pgx.ErrNoRows) {
-		sendJSON(w, http.StatusNotFound, map[string]string{"error": "account not found"})
+		sendError(w, http.StatusNotFound, "account not found")
 		return
 	}
 	if err != nil {
-		log.Printf("get account by ID: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "get account by ID", err)
 		return
 	}
 
@@ -92,27 +101,26 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 
 	// Validate input fields
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		sendError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if req.FromAccountID <= 0 || req.ToAccountID <= 0 {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ID"})
+		sendError(w, http.StatusBadRequest, "invalid ID")
 		return
 	}
 	if req.FromAccountID == req.ToAccountID {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot transfer to the same account"})
+		sendError(w, http.StatusBadRequest, "cannot transfer to the same account")
 		return
 	}
 	if req.Amount <= 0 {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid amount"})
+		sendError(w, http.StatusBadRequest, "invalid amount")
 		return
 	}
 
 	// BEGIN
 	tx, err := s.pool.Begin(r.Context())
 	if err != nil {
-		log.Printf("begin: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "begin", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -123,15 +131,14 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 	_, err2 := qtx.GetAccountByID(r.Context(), req.ToAccountID)
 	if err := errors.Join(err1, err2); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			sendJSON(w, http.StatusNotFound, map[string]string{"error": "account not found"})
+			sendError(w, http.StatusNotFound, "account not found")
 			return
 		}
-		log.Printf("get account by ID: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "get account by ID", err)
 		return
 	}
 	if req.Amount > fromAccount.Balance {
-		sendJSON(w, http.StatusConflict, map[string]string{"error": "insufficient balance"})
+		sendError(w, http.StatusConflict, "insufficient balance")
 		return
 	}
 
@@ -140,8 +147,7 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		ID:     req.FromAccountID,
 	})
 	if err != nil {
-		log.Printf("deduct balance: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "deduct balance", err)
 		return
 	}
 	_, err = qtx.AddAccountBalance(r.Context(), db.AddAccountBalanceParams{
@@ -149,8 +155,7 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		ID:     req.ToAccountID,
 	})
 	if err != nil {
-		log.Printf("add balance: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "add balance", err)
 		return
 	}
 	transfer, err := qtx.CreateNewTransfer(r.Context(), db.CreateNewTransferParams{
@@ -159,15 +164,13 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		Amount:        req.Amount,
 	})
 	if err != nil {
-		log.Printf("create new transfer: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "create new transfer", err)
 		return
 	}
 
 	// COMMIT
 	if err := tx.Commit(r.Context()); err != nil {
-		log.Printf("commit: %v", err)
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		sendInternalError(w, "commit", err)
 		return
 	}
 	sendJSON(w, http.StatusCreated, transfer)
