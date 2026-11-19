@@ -1,7 +1,8 @@
 package main
 
 // Test harness: TestMain runs once before every test in this package. It connects to the
-// test database (D15), runs the goose migrations into it, and shares the pool via testPool.
+// test database (never the dev one, since tests delete data), runs the goose migrations
+// into it, and shares the pool via testPool.
 //
 // Run from backend/: set -a; source .env; set +a; go test ./...
 
