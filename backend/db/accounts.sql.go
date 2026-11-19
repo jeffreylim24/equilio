@@ -9,6 +9,25 @@ import (
 	"context"
 )
 
+const addAccountBalance = `-- name: AddAccountBalance :one
+UPDATE accounts
+SET balance = balance + $2
+WHERE id = $1
+RETURNING id, name, balance
+`
+
+type AddAccountBalanceParams struct {
+	ID      int64 `json:"id"`
+	Balance int64 `json:"balance"`
+}
+
+func (q *Queries) AddAccountBalance(ctx context.Context, arg AddAccountBalanceParams) (Account, error) {
+	row := q.db.QueryRow(ctx, addAccountBalance, arg.ID, arg.Balance)
+	var i Account
+	err := row.Scan(&i.ID, &i.Name, &i.Balance)
+	return i, err
+}
+
 const createAccount = `-- name: CreateAccount :one
 INSERT INTO accounts (name) VALUES ($1)
 RETURNING id, name, balance
@@ -16,6 +35,25 @@ RETURNING id, name, balance
 
 func (q *Queries) CreateAccount(ctx context.Context, name string) (Account, error) {
 	row := q.db.QueryRow(ctx, createAccount, name)
+	var i Account
+	err := row.Scan(&i.ID, &i.Name, &i.Balance)
+	return i, err
+}
+
+const deductAccountBalance = `-- name: DeductAccountBalance :one
+UPDATE accounts
+SET balance = balance - $2
+WHERE id = $1
+RETURNING id, name, balance
+`
+
+type DeductAccountBalanceParams struct {
+	ID      int64 `json:"id"`
+	Balance int64 `json:"balance"`
+}
+
+func (q *Queries) DeductAccountBalance(ctx context.Context, arg DeductAccountBalanceParams) (Account, error) {
+	row := q.db.QueryRow(ctx, deductAccountBalance, arg.ID, arg.Balance)
 	var i Account
 	err := row.Scan(&i.ID, &i.Name, &i.Balance)
 	return i, err
