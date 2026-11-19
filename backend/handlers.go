@@ -99,6 +99,10 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ID"})
 		return
 	}
+	if req.FromAccountID == req.ToAccountID {
+		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot transfer to the same account"})
+		return
+	}
 	if req.Amount <= 0 {
 		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid amount"})
 		return
@@ -116,7 +120,7 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 
 	// Verify accounts exist and have sufficient balance
 	fromAccount, err1 := qtx.GetAccountByID(r.Context(), req.FromAccountID)
-	toAccount, err2 := qtx.GetAccountByID(r.Context(), req.ToAccountID)
+	_, err2 := qtx.GetAccountByID(r.Context(), req.ToAccountID)
 	if err := errors.Join(err1, err2); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			sendJSON(w, http.StatusNotFound, map[string]string{"error": "account not found"})
@@ -124,10 +128,6 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("get account by ID: %v", err)
 		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
-		return
-	}
-	if fromAccount == toAccount {
-		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot transfer to the same account"})
 		return
 	}
 	if req.Amount > fromAccount.Balance {
