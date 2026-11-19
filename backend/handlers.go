@@ -93,6 +93,14 @@ func (s *Server) handleGetAccountByID(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, http.StatusOK, account)
 }
 
+// handleCreateTransfer handles POST /transfers. The body is
+// {"from_account_id": 1, "to_account_id": 2, "amount": 500}, with amount in cents.
+// In one transaction it deducts from the source, adds to the destination and
+// records a transfer row; it returns 201 with that row. It returns 400 for bad
+// input (malformed JSON, non-positive IDs or amount, same account on both sides),
+// 404 if either account doesn't exist, and 409 if the source balance is too low.
+//
+// Naive on purpose: correct one request at a time, not yet under concurrency.
 func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		FromAccountID int64 `json:"from_account_id"`
