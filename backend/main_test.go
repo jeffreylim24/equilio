@@ -94,3 +94,19 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	return nil
 }
+
+// resetDB empties every app table so the calling test starts from a known state.
+// Call it first in every test. It runs at the start, not the end, so a failed test's
+// rows stay in equilio_test for debugging in psql until the next test runs.
+//
+// goose_db_version is deliberately not listed: wiping it would make goose re-run
+// migrations into tables that already exist. No CASCADE: when a new table references
+// accounts or transfers and isn't added here, TRUNCATE fails loudly instead of
+// silently emptying it.
+func resetDB(t *testing.T) {
+	t.Helper()
+	_, err := testPool.Exec(t.Context(), "TRUNCATE transfers, accounts RESTART IDENTITY")
+	if err != nil {
+		t.Fatalf("reset test DB: %v", err)
+	}
+}
