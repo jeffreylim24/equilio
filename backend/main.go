@@ -45,11 +45,7 @@ func main() {
 	}
 
 	srv := &Server{queries: db.New(pool), pool: pool}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /accounts", srv.handleCreateAccount)
-	mux.HandleFunc("GET /accounts/{id}", srv.handleGetAccountByID)
-	mux.HandleFunc("POST /transfers", srv.handleCreateTransfer)
 
 	log.Printf("listening on %v", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, srv.routes()))
 }
