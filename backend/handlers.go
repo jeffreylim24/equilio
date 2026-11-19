@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -81,7 +82,7 @@ func (s *Server) handleGetAccountByID(w http.ResponseWriter, r *http.Request) {
 
 	account, err := s.queries.GetAccountByID(r.Context(), n)
 	if errors.Is(err, pgx.ErrNoRows) {
-		sendError(w, http.StatusNotFound, "account not found")
+		sendError(w, http.StatusNotFound, fmt.Sprintf("account %d not found", n))
 		return
 	}
 	if err != nil {
@@ -127,14 +128,22 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 	qtx := s.queries.WithTx(tx)
 
 	// Verify accounts exist and have sufficient balance
-	fromAccount, err1 := qtx.GetAccountByID(r.Context(), req.FromAccountID)
-	_, err2 := qtx.GetAccountByID(r.Context(), req.ToAccountID)
-	if err := errors.Join(err1, err2); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			sendError(w, http.StatusNotFound, "account not found")
-			return
-		}
-		sendInternalError(w, "get account by ID", err)
+	fromAccount, err := qtx.GetAccountByID(r.Context(), req.FromAccountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		sendError(w, http.StatusNotFound, fmt.Sprintf("from account %d not found", req.FromAccountID))
+		return
+	}
+	if err != nil {
+		sendInternalError(w, "get from account", err)
+		return
+	}
+	_, err = qtx.GetAccountByID(r.Context(), req.ToAccountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		sendError(w, http.StatusNotFound, fmt.Sprintf("to account %d not found", req.ToAccountID))
+		return
+	}
+	if err != nil {
+		sendInternalError(w, "get to account", err)
 		return
 	}
 	if req.Amount > fromAccount.Balance {
