@@ -4,8 +4,20 @@
 
 package db
 
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
 type Account struct {
 	ID      int64  `json:"id"`
 	Name    string `json:"name"`
 	Balance int64  `json:"balance"`
+}
+
+type Transfer struct {
+	ID            int64              `json:"id"`
+	FromAccountID int64              `json:"from_account_id"`
+	ToAccountID   int64              `json:"to_account_id"`
+	Amount        int64              `json:"amount"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
