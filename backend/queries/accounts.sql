@@ -8,12 +8,12 @@ WHERE id = $1;
 
 -- name: DeductAccountBalance :one
 UPDATE accounts
-SET balance = balance - $2
-WHERE id = $1
+SET balance = balance - @amount
+WHERE id = @id
 RETURNING *;
 
 -- name: AddAccountBalance :one
 UPDATE accounts
-SET balance = balance + $2
-WHERE id = $1
+SET balance = balance + @amount
+WHERE id = @id
 RETURNING *;
